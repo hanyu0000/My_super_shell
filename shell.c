@@ -9,7 +9,6 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <dirent.h>             
-
 #define MAX_CMD 10
 #define BUFFSIZE 100
 #define MAX_CMD_LEN 100
