@@ -10,6 +10,7 @@
 #include <malloc.h>
 #include <ctype.h>
 #include <signal.h>
+#define BUFFSIZE 100
 #define MAX_CMD_LENGTH 255
 #define MAX_PATH_LENGTH 255
 #define MAX_BUF_SIZE  4096
@@ -282,33 +283,29 @@ int execInner(struct cmd* pcmd){
     if (!pcmd->args[0])
         return 0;
     if (strcmp(pcmd->args[0], "cd") == 0) {
-    struct stat st;
-    if (pcmd->args[1]) {
-        if (!strcmp(pcmd->args[1], "-"))
-            chdir("..");
-        else if (!strcmp(pcmd->args[1], "~"))
-            chdir("home/zxc");
+        static char prevPath[BUFFSIZE];
+        char curPath[BUFFSIZE];
+        getcwd(curPath, BUFFSIZE);
+        struct stat st;
+        if (strcmp(pcmd->args[1], "") == 0 || strcmp(pcmd->args[1], "~") == 0) 
+            chdir("/home/zxc") != 0;
+        else if (strcmp(pcmd->args[1], "-") == 0) {
+            if (strlen(prevPath) > 0) {
+                if (chdir(prevPath) != 0) 
+                    printf("Error\n");
+                else {
+                    printf("%s\n", prevPath);
+                    strcpy(prevPath, curPath);
+                }
+            }
+        }
         else {
-            stat(pcmd->args[1], &st);
-            if (S_ISDIR(st.st_mode))
-                chdir(pcmd->args[1]);
-            else
-                return -1;
+            if (chdir(pcmd->args[1]) != 0) 
+                printf("Error: \n");
+            else 
+                strcpy(prevPath, curPath);
         }
     }
-    return 0;
-} else if (strcmp(pcmd->args[0], "cd") == 0) {
-    if (pcmd->args[1] == NULL)
-        chdir(getenv("HOME"));
-    else if (pcmd->argc == 1)
-        chdir(pcmd->args[1]);
-    else if (!strcmp("-", pcmd->args[1]))
-        chdir("..");
-    else if (!strcmp("~", pcmd->args[1]))
-        chdir("home/zxc");
-    else
-        chdir(pcmd->args[1]);
-}
     if (strcmp(pcmd->args[0], "pwd") == 0) {
         printf("%s\n",getcwd(pcmd->args[1] , MAX_PATH_LENGTH));
         return 0;
