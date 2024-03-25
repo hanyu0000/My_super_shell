@@ -9,9 +9,11 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <dirent.h>             
+
 #define MAX_CMD 10
 #define BUFFSIZE 100
 #define MAX_CMD_LEN 100
+
 int argc;                                       // 有效参数个数
 char* argv[MAX_CMD];                            // 参数数组
 char command[MAX_CMD][MAX_CMD_LEN];             // 参数数组
@@ -21,17 +23,19 @@ char curPath[BUFFSIZE];                         // 当前工作路径
 int i, j;                                       
 int commandNum;                                 // 已经输入指令数目
 char history[MAX_CMD][BUFFSIZE];                // 存放历史命令
+void sig_handler(int signum);
 int get_input(char buf[]);                      
 void parse(char* buf);                          
 void do_cmd(int argc, char* argv[]);
 void Cd(char command[MAX_CMD][MAX_CMD_LEN]);                      
 int printHistory(char command[MAX_CMD][MAX_CMD_LEN]);  
+
 int WithOutput(char buf[BUFFSIZE]);          
 int WithInput(char buf[BUFFSIZE]);          
 int WithReOutput(char buf[BUFFSIZE]);        
 int WithPipe(char buf[BUFFSIZE]);            
 int InBackground(char buf[BUFFSIZE]);
-                                     
+
 int get_input(char buf[]) {
     memset(buf, 0x00, BUFFSIZE);
     memset(backupBuf, 0x00, BUFFSIZE);        
@@ -78,37 +82,36 @@ void parse(char* buf) {
 }
 void do_cmd(int argc, char* argv[]) {
     pid_t pid;
+    int pipefd[2];
     for (j = 0; j < MAX_CMD; j++) {
         if (strcmp(command[j], ">") == 0) {
             strcpy(buf, backupBuf);
             WithOutput(buf);
-            return;
         }
         if (strcmp(command[i], "<") == 0) {
             strcpy(buf, backupBuf);
             WithInput(buf);
-            return;
         }
         if (strcmp(command[j], ">>") == 0) {
             strcpy(buf, backupBuf);
             WithReOutput(buf);
-            return;
         }
         if (strcmp(command[j], "|") == 0) {
             strcpy(buf, backupBuf);
             WithPipe(buf);
-            return;
         }
     }
     for (j = 0; j < MAX_CMD; j++) {
         if (strcmp(command[j], "&") == 0) {
             strcpy(buf, backupBuf);
             InBackground(buf);
-            return;
         }
     }
-    if (strcmp(command[0], "cd") == 0)
+    if (strcmp(command[0], "cd") == 0){
+        getcwd(curPath, BUFFSIZE);
+        printf("curPath:%s\n",curPath);
         Cd(command);
+    }
     else if (strcmp(command[0], "history") == 0) 
         printHistory(command);
     else if (strcmp(command[0], "exit") == 0) 
@@ -124,25 +127,33 @@ void do_cmd(int argc, char* argv[]) {
             default: {
                     int status;
                     waitpid(pid, &status, 0);      // 等待子进程返回
-                    int err = WEXITSTATUS(status); // 读取子进程的返回码
-
-                    if (err) 
-                        printf("Error: %s\n", strerror(err));                   
+                    int err = WEXITSTATUS(status); // 读取子进程的返回码            
             }
         }
     }
 }
 void Cd(char command[MAX_CMD][MAX_CMD_LEN]) {
-    if(command[1] == NULL)
-        chdir(getenv("HOME"));
-    else if(argc == 1)
-        chdir(command[1]);
-    else if(!strcmp("-",command[1]))
-        chdir("..");
-    else if(!strcmp("~",command[1]))
-        chdir("home/zxc");
-    else
-        chdir(command[1]);
+    static char prevPath[BUFFSIZE];
+    char curPath[BUFFSIZE];
+    getcwd(curPath, BUFFSIZE);
+    if (strcmp(command[1], "") == 0 || strcmp(command[1], "~") == 0) 
+        chdir("/home/zxc") != 0;
+    else if (strcmp(command[1], "-") == 0) {
+        if (strlen(prevPath) > 0) {
+            if (chdir(prevPath) != 0) 
+                printf("Error\n");
+            else {
+                printf("%s\n", prevPath);
+                strcpy(prevPath, curPath);
+            }
+        }
+    }
+    else {
+        if (chdir(command[1]) != 0) 
+            printf("Error: \n");
+        else 
+            strcpy(prevPath, curPath);
+    }
 }
 int printHistory(char command[MAX_CMD][MAX_CMD_LEN]) {
     int n = atoi(command[1]);
@@ -157,13 +168,9 @@ int WithOutput(char buf[BUFFSIZE]) {
 
     int Num = 0;
     for (i = 0; i + 1 < strlen(buf); i++) {
-        if (buf[i] == '>' && buf[i + 1] == ' ') {
+        if (buf[i] == '>' && buf[i + 1] == ' ') 
             Num++;
-            break;
-        }
     }
-    if (Num != 1) 
-        return 0;
 
     for (i = 0; i < argc; i++) {
         if (strcmp(command[i], ">") == 0) {
@@ -188,17 +195,10 @@ int WithOutput(char buf[BUFFSIZE]) {
             printf("创建子进程未成功");
             return 0;
         case 0: {
-            int fd;
-            fd = open(outFile, O_WRONLY|O_CREAT|O_TRUNC, 7777);
-            
-            if (fd < 0)// 文件打开失败
-                exit(1);
-            dup2(fd, STDOUT_FILENO);  
+            int fd = open(outFile, O_WRONLY|O_CREAT|O_TRUNC, 0777);
+            dup2(fd, STDOUT_FILENO); 
+            close(fd); 
             execvp(argv[0], argv);
-
-            if (fd != STDOUT_FILENO) 
-                close(fd);
-        
             exit(1);
         }
         default: {
@@ -206,7 +206,7 @@ int WithOutput(char buf[BUFFSIZE]) {
             waitpid(pid, &status, 0);       // 等待子进程返回
             int err = WEXITSTATUS(status);  // 读取子进程的返回码
             if (err) 
-                printf("Error: %s\n", strerror(err));
+            printf("子进程执行出错：%s\n", strerror(err));
         }                        
     }
 
@@ -218,14 +218,9 @@ int WithInput(char buf[BUFFSIZE]) {
 
     int Num = 0;
     for ( i = 0; i + 1< strlen(buf); i++) {
-        if (buf[i] == '<' && buf[i + 1] == ' ') {
+        if (buf[i] == '<' && buf[i + 1] == ' ') 
             Num++;
-            break;
-        }
     }
-    if (Num != 1) 
-        return 0;
-
     for (i = 0; i < argc; i++) {
         if (strcmp(command[i], "<") == 0) {
             if (i + 1 < argc)
@@ -248,17 +243,10 @@ int WithInput(char buf[BUFFSIZE]) {
             printf("创建子进程未成功");
             return 0;
         case 0: {
-            int fd;
-            fd = open(inFile, O_RDONLY, 7777);
-            
-            if (fd < 0) 
-                exit(1);
-            dup2(fd, STDIN_FILENO);  
+            int fd = open(inFile, O_RDONLY, 0777);
+            dup2(fd, STDIN_FILENO); 
+            close(fd);
             execvp(argv[0], argv);
-
-            if (fd != STDIN_FILENO) 
-                close(fd);
-            
             exit(1);
         }
         default: {
@@ -278,13 +266,9 @@ int WithReOutput(char buf[BUFFSIZE]) {
 
     int Num = 0;
     for ( i = 0; i + 2 < strlen(buf); i++) {
-        if (buf[i] == '>' && buf[i + 1] == '>' && buf[i + 2] == ' ') {
+        if (buf[i] == '>' && buf[i + 1] == '>' && buf[i + 2] == ' ') 
             Num++;
-            break;
-        }
     }
-    if (Num != 1) 
-        return 0;
 
     for (i = 0; i < argc; i++) {
         if (strcmp(command[i], ">>") == 0) {
@@ -308,17 +292,10 @@ int WithReOutput(char buf[BUFFSIZE]) {
             printf("创建子进程未成功");
             return 0;
         case 0: {
-            int fd;
-            fd = open(reOutFile, O_WRONLY|O_APPEND|O_CREAT|O_APPEND, 7777);
-            
-            if (fd < 0) 
-                exit(1);
-            dup2(fd, STDOUT_FILENO);  
-            execvp(argv[0], argv);
-
-            if (fd != STDOUT_FILENO) 
-                close(fd);
-            
+            int fd = open(reOutFile, O_WRONLY|O_APPEND|O_CREAT|O_APPEND, 7777);
+            dup2(fd, STDOUT_FILENO); 
+            close(fd);
+            execvp(argv[0], argv);  
             exit(1);
         }
         default: {
@@ -337,27 +314,28 @@ int WithPipe(char buf[BUFFSIZE]) {
             count++;
     }
     // 分离指令, 将管道符号前后的指令存放在两个数组中
-    // outputBuf存放管道前的命令, inputBuf存放管道后的命令
-    char outputBuf[j];
-    memset(outputBuf, 0x00, j);
-    char inputBuf[strlen(buf) - j];
-    memset(inputBuf, 0x00, strlen(buf) - j);
+    char outputBuf[BUFFSIZE];
+    memset(outputBuf, 0x00,BUFFSIZE);
+    char inputBuf[BUFFSIZE];
+    memset(inputBuf, 0x00, BUFFSIZE);
 
-    for (i = 0; i < j - 1; i++) 
-        outputBuf[i] = buf[i];
+    int output_len = 0;
+    int input_len = 0;
 
-    for (i = 0; i < strlen(buf) - j - 1; i++) 
-        inputBuf[i] = buf[j + 2 + i];
+    for (i = 0; i < j - 1 && buf[i] != '|'; i++) {
+        outputBuf[output_len++] = buf[i];
+    }
+
+    for (i = i + 2; i < strlen(buf) && buf[i] != '\0'; i++) {
+        inputBuf[input_len++] = buf[i];
+    }
 
     int pd[2];
-    pid_t pid;
     if (pipe(pd) < 0) 
         exit(1);
-
-    pid = fork();
+    pid_t pid = fork();
     if (pid < 0) 
         exit(1);
-
     if (pid == 0) {                     // 子进程写管道
         close(pd[0]);                   // 关闭子进程的读端
         dup2(pd[1], STDOUT_FILENO);     // 将子进程的写端作为标准输出
@@ -394,8 +372,7 @@ int InBackground(char buf[BUFFSIZE]) {
         }
     }
 
-    pid_t pid;
-    pid = fork();
+    pid_t pid = fork();
     if (pid < 0) 
         exit(1);
 
@@ -406,13 +383,13 @@ int InBackground(char buf[BUFFSIZE]) {
         signal(SIGCHLD,SIG_IGN);
         parse(backgroundBuf);
         execvp(argv[0], argv);
-       
         exit(1);
     }
-    else 
-        exit(0);
 }
 int main() {
+    signal(SIGINT,SIG_IGN);//忽略contral c;
+    signal(SIGHUP,SIG_IGN);//忽略控制终端关闭的信号
+
     while(1) {
         printf("[my_super_shell]$ ");
         if (get_input(buf) == 0)
