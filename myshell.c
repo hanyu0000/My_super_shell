@@ -10,6 +10,7 @@
 #include <malloc.h>
 #include <ctype.h>
 #include <signal.h>
+#include <termios.h>
 #define BUFFSIZE 100
 #define MAX_CMD_LENGTH 255
 #define MAX_PATH_LENGTH 255
@@ -43,9 +44,26 @@ int  getItem();
 int  parseArgs();
 int  execInner();
 int  execOuter();
+void disable_ctrl_d() {
+    struct termios t;
+    // 获取当前终端属性
+    if (tcgetattr(STDIN_FILENO, &t) == -1) {
+        perror("tcgetattr");
+        exit(1);
+    }
+    // 禁用 VEOF 标志，将其设置为 EINTR
+    t.c_cc[VEOF] = _POSIX_VDISABLE;
+    // 设置新的终端属性
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &t) == -1) {
+        perror("tcsetattr");
+        exit(1);
+    }
+}
 int main(){
+    disable_ctrl_d();
     signal(SIGINT,SIG_IGN);//忽略contral c;
     signal(SIGHUP,SIG_IGN);//忽略控制终端关闭的信号
+    disable_ctrl_d();
     while (1){
         cmdNum = varNum = 0;
         printf("[my_super_shell]$ ");
